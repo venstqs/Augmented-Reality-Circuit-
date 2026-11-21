@@ -1,0 +1,14 @@
+{
+  "name": "augmented-reality-circuit-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root workspace forwarder for XavierLabs AR Circuit",
+  "scripts": {
+    "start": "npm --prefix ar-circuit start -- -c",
+    "expo": "npm --prefix ar-circuit run start -- -c",
+    "android": "npm --prefix ar-circuit run android",
+    "ios": "npm --prefix ar-circuit run ios",
+    "web": "npm --prefix ar-circuit run web"
+  }
+}
+

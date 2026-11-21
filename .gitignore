@@ -1,0 +1,37 @@
+# Dependencies & Expo
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.metro-health-check*
+.DS_Store
+*.tsbuildinfo
+
+# Python / ML training artifacts & large datasets
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.pt
+*.onnx
+*.npy
+*.cache
+ar-circuit/training/dataset/
+ar-circuit/training/dataset_v2/
+ar-circuit/training/cghd_raw/
+ar-circuit/training/cghd_partial/
+ar-circuit/training/runs/
+
+# Secrets / local env
+.env
+.env*.local
+*.pem
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
