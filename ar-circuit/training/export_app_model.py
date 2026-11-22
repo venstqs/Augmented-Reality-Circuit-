@@ -8,10 +8,13 @@ Usage:
 """
 import argparse
 import json
+import os
 import shutil
 import sys
 import unittest.mock
 from pathlib import Path
+
+os.environ["YOLO_AUTOINSTALL"] = "False"
 
 # 1. Patch protobuf runtime version check so TensorFlow imports cleanly on Windows
 import google.protobuf.runtime_version
@@ -28,6 +31,64 @@ HERE = Path(__file__).resolve().parent
 APP_DIR = HERE.parent
 OUT_DIR = APP_DIR / "assets" / "model"
 REGISTRY_FILE = APP_DIR / "src" / "ml" / "modelRegistry.js"
+
+
+def fix_depthwise_conv2d(manifest: dict) -> int:
+    """
+    onnx2tf occasionally emits a grouped Conv2D (filter [kH, kW, 1, C]) for
+    depthwise convolutions (e.g. C2PSA positional encoding in YOLO11).
+    TF.js Conv2D does not support groups > 1, so rewrite those nodes to
+    DepthwiseConv2dNative with filter shape [kH, kW, C, 1] (identical byte layout).
+    """
+    weights = {
+        w["name"]: w
+        for g in manifest.get("weightsManifest", [])
+        for w in g.get("weights", [])
+    }
+    nodes = {n["name"]: n for n in manifest.get("modelTopology", {}).get("node", [])}
+    patched = 0
+    for n in nodes.values():
+        if n.get("op") not in ("Conv2D", "_FusedConv2D"):
+            continue
+        in_shapes = (
+            n.get("attr", {})
+            .get("_input_shapes", {})
+            .get("list", {})
+            .get("shape", [])
+        )
+        in_c = (
+            int(in_shapes[0]["dim"][-1]["size"])
+            if len(in_shapes) >= 1 and len(in_shapes[0].get("dim", [])) == 4
+            else None
+        )
+        for inp in n.get("input", []):
+            w = weights.get(inp)
+            if not w or len(w.get("shape", [])) != 4:
+                continue
+            kh, kw, cin, cout = w["shape"]
+            if cin == 1 and cout > 1 and (in_c is None or in_c == cout):
+                n["op"] = (
+                    "DepthwiseConv2dNative"
+                    if n["op"] == "Conv2D"
+                    else "FusedDepthwiseConv2dNative"
+                )
+                w["shape"] = [kh, kw, cout, 1]
+                const_dims = (
+                    nodes.get(inp, {})
+                    .get("attr", {})
+                    .get("value", {})
+                    .get("tensor", {})
+                    .get("tensorShape", {})
+                    .get("dim", [])
+                )
+                if len(const_dims) == 4:
+                    const_dims[2]["size"] = str(cout)
+                    const_dims[3]["size"] = "1"
+                if len(in_shapes) >= 2 and len(in_shapes[1].get("dim", [])) == 4:
+                    in_shapes[1]["dim"][2]["size"] = str(cout)
+                    in_shapes[1]["dim"][3]["size"] = "1"
+                patched += 1
+    return patched
 
 
 def resolve_weights(path_str: str) -> Path:
@@ -86,6 +147,10 @@ def main():
         raise SystemExit(f"Error: model.json not found in {OUT_DIR}")
 
     manifest = json.loads(manifest_path.read_text())
+    patched = fix_depthwise_conv2d(manifest)
+    if patched:
+        manifest_path.write_text(json.dumps(manifest))
+        print(f"[OK] Patched {patched} grouped Conv2D node(s) -> DepthwiseConv2dNative for TF.js compatibility")
     shards = [p for group in manifest["weightsManifest"] for p in group["paths"]]
     total_mb = sum((OUT_DIR / s).stat().st_size for s in shards) / (1024 * 1024)
     print(f"[OK] Generated {len(shards)} weight shard(s) ({total_mb:.2f} MB total): {shards}")

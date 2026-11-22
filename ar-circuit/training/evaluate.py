@@ -14,6 +14,7 @@ Ultralytics also writes confusion_matrix.png, PR/F1 curves into runs/<val>/.
 import argparse
 import csv
 import json
+import os
 import random
 from pathlib import Path
 
@@ -146,11 +147,21 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
+    here = Path(__file__).resolve().parent
     out = Path(args.out); out.mkdir(exist_ok=True)
     model = YOLO(args.weights)
     names = model.names
 
-    metrics = model.val(data=args.data, imgsz=args.imgsz, split="val", plots=True, project="runs", name="eval", exist_ok=True)
+    metrics = model.val(
+        data=args.data,
+        imgsz=args.imgsz,
+        split="val",
+        plots=True,
+        workers=0 if os.name == "nt" else 4,
+        project=str(here / "runs"),
+        name="eval",
+        exist_ok=True,
+    )
     per_class = plot_per_class(metrics, names, out)
     plot_training_curves(Path(args.weights).parent.parent, out)
 
